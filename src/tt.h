@@ -43,7 +43,33 @@ struct TTEntry {
   Depth depth() const { return (Depth)fields.depth8 + DEPTH_OFFSET; }
   bool is_pv()  const { return (bool)fields.pv; }
   Bound bound() const { return (Bound)fields.bound; }
-  void save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev);
+
+  /// TTEntry::save() populates the TTEntry with a new node's data, possibly
+  /// overwriting an old position. Update is not atomic and can be racy.
+
+  void save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev) {
+
+  uint16_t key13 = (uint16_t)k&0x1FFF;
+  // Preserve any existing move for the same position
+  if (m || key13 != fields.key13)
+      fields.move16 = (uint16_t)m;
+
+  // Overwrite less valuable entries (cheapest checks first)
+  if (b == BOUND_EXACT
+      || key13 != fields.key13
+      || d - DEPTH_OFFSET > fields.depth8 - 4)
+  {
+      assert(d > DEPTH_OFFSET);
+      assert(d < 256 + DEPTH_OFFSET);
+
+      fields.key13     = key13;
+      fields.depth8    = (uint8_t)(d - DEPTH_OFFSET);
+	  fields.pv        = (uint8_t)pv;
+	  fields.bound     = (uint8_t)b;
+      fields.value16   = (int16_t)v;
+      fields.eval16    = (int16_t)ev;
+  }
+  }
 
 private:
   friend class TranspositionTable;
@@ -58,6 +84,7 @@ private:
 	uint16_t key13:  13;
   } fields;
 };
+
 
 
 /// A TranspositionTable is an array of Cluster, of size clusterCount. Each
