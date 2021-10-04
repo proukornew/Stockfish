@@ -35,23 +35,25 @@ TranspositionTable TT; // Our global transposition table
 
 void TTEntry::save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev) {
 
+  uint16_t key13 = (uint16_t)k&0x1FFF;
   // Preserve any existing move for the same position
-  if (m || (uint16_t)k != key16)
-      move16 = (uint16_t)m;
+  if (m || key13 != fields.key13)
+      fields.move16 = (uint16_t)m;
 
   // Overwrite less valuable entries (cheapest checks first)
   if (b == BOUND_EXACT
-      || (uint16_t)k != key16
-      || d - DEPTH_OFFSET > depth8 - 4)
+      || key13 != fields.key13
+      || d - DEPTH_OFFSET > fields.depth8 - 4)
   {
       assert(d > DEPTH_OFFSET);
       assert(d < 256 + DEPTH_OFFSET);
 
-      key16     = (uint16_t)k;
-      depth8    = (uint8_t)(d - DEPTH_OFFSET);
-      genBound8 = (uint8_t)(TT.generation8 | uint8_t(pv) << 2 | b);
-      value16   = (int16_t)v;
-      eval16    = (int16_t)ev;
+      fields.key13     = key13;
+      fields.depth8    = (uint8_t)(d - DEPTH_OFFSET);
+	  fields.pv        = (uint8_t)pv;
+	  fields.bound     = (uint8_t)b;
+      fields.value16   = (int16_t)v;
+      fields.eval16    = (int16_t)ev;
   }
 }
 
@@ -118,31 +120,21 @@ void TranspositionTable::clear() {
 /// TTEntry t2 if its replace value is greater than that of t2.
 
 TTEntry* TranspositionTable::probe(const Key key, bool& found) const {
+  __extension__ typedef unsigned __int128 uint128;
+  uint128 c = (uint128)key * (uint128)clusterCount;
+  uint32_t cluster_index = c >> 64;
+  uint32_t line_index = ((c & (uint128)0xffffffffffffffff)*(uint128)ClusterSize) >> 64;
+  uint16_t guard_key = (uint16_t)key & 0x1FFF;  // Use the low 13 bits as guard key
+  TTEntry* const tte = &table[cluster_index].entry[0];
 
-  TTEntry* const tte = first_entry(key);
-  const uint16_t key16 = (uint16_t)key;  // Use the low 16 bits as key inside the cluster
-
-  for (int i = 0; i < ClusterSize; ++i)
-      if (tte[i].key16 == key16 || !tte[i].depth8)
-      {
-          tte[i].genBound8 = uint8_t(generation8 | (tte[i].genBound8 & (GENERATION_DELTA - 1))); // Refresh
-
-          return found = (bool)tte[i].depth8, &tte[i];
-      }
-
-  // Find an entry to be replaced according to the replacement strategy
-  TTEntry* replace = tte;
-  for (int i = 1; i < ClusterSize; ++i)
-      // Due to our packed storage format for generation and its cyclic
-      // nature we add GENERATION_CYCLE (256 is the modulus, plus what
-      // is needed to keep the unrelated lowest n bits from affecting
-      // the result) to calculate the entry age correctly even after
-      // generation8 overflows into the next cycle.
-      if (  replace->depth8 - ((GENERATION_CYCLE + generation8 - replace->genBound8) & GENERATION_MASK)
-          >   tte[i].depth8 - ((GENERATION_CYCLE + generation8 -   tte[i].genBound8) & GENERATION_MASK))
-          replace = &tte[i];
-
-  return found = false, replace;
+  if (tte[line_index].fields.key13 == guard_key) {
+	table[cluster_index].gen8 = generation8 ; // Refresh
+	found = true;
+  }
+  else {
+	found = false;
+  }
+  return &tte[line_index];
 }
 
 
@@ -153,10 +145,9 @@ int TranspositionTable::hashfull() const {
 
   int cnt = 0;
   for (int i = 0; i < 1000; ++i)
-      for (int j = 0; j < ClusterSize; ++j)
-          cnt += table[i].entry[j].depth8 && (table[i].entry[j].genBound8 & GENERATION_MASK) == generation8;
+    cnt += (table[i].gen8) == generation8;
 
-  return cnt / ClusterSize;
+  return cnt;
 }
 
 } // namespace Stockfish
