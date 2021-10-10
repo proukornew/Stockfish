@@ -35,20 +35,20 @@ TranspositionTable TT; // Our global transposition table
 
 void TTEntry::save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev) {
 
-  uint16_t key13 = (uint16_t)k&0x1FFF;
+  uint32_t key21 = (uint32_t)k&0x1FFFFF;
   // Preserve any existing move for the same position
-  if (m || key13 != fields.key13)
+  if (m || key21 != fields.key21)
       fields.move16 = (uint16_t)m;
 
   // Overwrite less valuable entries (cheapest checks first)
   if (b == BOUND_EXACT
-      || key13 != fields.key13
+      || key21 != fields.key21
       || d - DEPTH_OFFSET > fields.depth8 - 4)
   {
       assert(d > DEPTH_OFFSET);
       assert(d < 256 + DEPTH_OFFSET);
 
-      fields.key13     = key13;
+      fields.key21     = key21;
       fields.depth8    = (uint8_t)(d - DEPTH_OFFSET);
 	  fields.pv        = (uint8_t)pv;
 	  fields.bound     = (uint8_t)b;
@@ -120,36 +120,28 @@ void TranspositionTable::clear() {
 /// TTEntry t2 if its replace value is greater than that of t2.
 
 TTEntry* TranspositionTable::probe(const Key key, bool& found) const {
-  __extension__ typedef unsigned __int128 uint128;
-  uint128 c = (uint128)key * (uint128)clusterCount;
-  uint32_t cluster_index = c >> 64;
-  uint32_t line_index = ((c & (uint128)0xffffffffffffffff)*(uint128)ClusterSize) >> 64;
-  uint16_t guard_key = (uint16_t)key & 0x1FFF;  // Use the low 13 bits as guard key
-  TTEntry* const tte = &table[cluster_index].entry[0];
+  uint32_t guard_key = (uint32_t)key & 0x1FFFFF;  // Use the low 21 bits as guard key
+  Cluster* cl = first_entry(key);
   
-  int i = line_index;
-  int chain_c = 3;
-  TTEntry* replace = tte;
+  int i = 0;
+
+  TTEntry* replace = cl->entry;
   uint8_t previous_depth = 255;
   do {
-	if (tte[i].fields.key13 == guard_key || !tte[i].fields.depth8) {
-	  table[cluster_index].gen8 = generation8 ; // Refresh
-	  found = (bool)tte[i].fields.depth8;
-	  return &tte[i];
+	if (cl->entry[i].fields.key21 == guard_key || !cl->entry[i].fields.depth8) {
+	  cl->gen8[0] = generation8 ; // Refresh
+	  found = (bool)cl->entry[i].fields.depth8;
+	  return &cl->entry[i];
     }
 	else {
-      if (tte[i].fields.depth8 < previous_depth) {
-		  replace = &tte[i];
-		  previous_depth = tte[i].fields.depth8;
+      if (cl->entry[i].fields.depth8 < previous_depth) {
+		  replace = &cl->entry[i];
+		  previous_depth = cl->entry[i].fields.depth8;
 	  }
 	}
-	chain_c--;
 	i++;
-	if (i == ClusterSize) {
-	  i = 0;
-	}
   }
-  while (chain_c > 0);
+  while (i < 3);
   
   found = false;
   return replace;	
@@ -163,7 +155,7 @@ int TranspositionTable::hashfull() const {
 
   int cnt = 0;
   for (int i = 0; i < 1000; ++i)
-    cnt += (table[i].gen8) == generation8;
+    cnt += (table[i].gen8[0]) == generation8;
 
   return cnt;
 }

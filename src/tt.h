@@ -55,7 +55,7 @@ private:
 	uint8_t  depth8;
 	uint8_t  pv:      1;
 	uint8_t  bound:   2;
-	uint16_t key13:  13;
+	uint32_t key21:  21;
   } fields;
 };
 
@@ -68,14 +68,14 @@ private:
 
 class TranspositionTable {
 
-  static constexpr int ClusterSize = 7;
+  static constexpr int ClusterSize = 3;
 
   struct Cluster {
-    TTEntry entry[ClusterSize]; // 9x7=63
-    uint8_t gen8;
+    TTEntry entry[ClusterSize]; // 10x3=30
+    uint8_t gen8[2];
   };
 
-  static_assert(sizeof(Cluster) == 64, "Unexpected Cluster size");
+  static_assert(sizeof(Cluster) == 32, "Unexpected Cluster size");
 
   // Constants used to refresh the hash table periodically
   static constexpr unsigned GENERATION_BITS  = 3;                                // nb of bits reserved for other things
@@ -91,8 +91,8 @@ public:
   void resize(size_t mbSize);
   void clear();
 
-  TTEntry* first_entry(const Key key) const {
-    return &table[mul_hi64(key, clusterCount)].entry[0];
+  Cluster* first_entry(const Key key) const {
+    return &table[mul_hi64(key, clusterCount)];
   }
 
 private:
