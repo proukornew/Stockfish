@@ -82,7 +82,7 @@ class TranspositionTable {
   // Constants used to refresh the hash table periodically
   static constexpr unsigned GENERATION_BITS  = 3;                                // nb of bits reserved for other things
   static constexpr int      GENERATION_DELTA = (1 << GENERATION_BITS);           // increment for generation field
-  static constexpr int      GENERATION_CYCLE = 31;     // cycle length
+  static constexpr int      GENERATION_CYCLE = 32;     // cycle length
   static constexpr int      GENERATION_MASK  = 31; // mask to pull out generation number
 
 public:
