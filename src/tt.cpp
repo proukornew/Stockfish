@@ -117,32 +117,40 @@ void TranspositionTable::clear() {
 /// minus 8 times its relative age. TTEntry t1 is considered more valuable than
 /// TTEntry t2 if its replace value is greater than that of t2.
 
-TTEntry* TranspositionTable::probe(const Key key, bool& found) const {
+__attribute__ ((hot)) TTEntry* TranspositionTable::probe(const Key key, bool& found) const {
+	Cluster* const cluster = first_entry(key);
+	const uint16_t key16 = (uint16_t)key;
+	//int nline = ((uint32_t)key >> 16) & 0x3;
 
-  TTEntry* const tte = first_entry(key);
-  const uint16_t key16 = (uint16_t)key;  // Use the low 16 bits as key inside the cluster
+	auto match = _mm_set1_epi16(key16);
+	auto metadata = _mm_load_si128((__m128i const*)cluster);
+	auto mask = _mm_movemask_epi8(_mm_cmpeq_epi16(match, metadata));
+	int index;
+	if (mask) {
+		found = true;
+		index = __builtin_ctz(mask) >> 1;
+	}
+	else {
+		found = false;
+		auto depth8genBound8 = _mm_load_si128((__m128i const*)&cluster->depth8genBound8[0]);
+		auto andmask = _mm_set1_epi16((uint16_t)0xFF00);
+		auto cmpmask = _mm_set1_epi16(0x0000);
+		auto depth8 = _mm_and_si128(depth8genBound8, andmask);
+		auto mask2 = _mm_movemask_epi8(_mm_cmpeq_epi16(depth8, cmpmask));
+		if (mask2) {
+			index = __builtin_ctz(mask2) >> 1;
+		}
+		else {
+			auto andmask2 = _mm_set1_epi16(0x00F8);
+			auto curGen = _mm_set1_epi16((uint16_t)generation8 << 8);
+			auto gen8 = _mm_slli_epi16(_mm_and_si128(depth8genBound8, andmask2), 8);
+			auto diffgen = _mm_subs_epu16(curGen, gen8);
+			auto res = _mm_subs_epu16(depth8, diffgen);
+			index = _mm_extract_epi32(_mm_minpos_epu16(res), 0) >> 16;
+		}
+	}
 
-  for (int i = 0; i < ClusterSize; ++i)
-      if (tte[i].key16 == key16 || !tte[i].depth8)
-      {
-          tte[i].genBound8 = uint8_t(generation8 | (tte[i].genBound8 & (GENERATION_DELTA - 1))); // Refresh
-
-          return found = (bool)tte[i].depth8, &tte[i];
-      }
-
-  // Find an entry to be replaced according to the replacement strategy
-  TTEntry* replace = tte;
-  for (int i = 1; i < ClusterSize; ++i)
-      // Due to our packed storage format for generation and its cyclic
-      // nature we add GENERATION_CYCLE (256 is the modulus, plus what
-      // is needed to keep the unrelated lowest n bits from affecting
-      // the result) to calculate the entry age correctly even after
-      // generation8 overflows into the next cycle.
-      if (  replace->depth8 - ((GENERATION_CYCLE + generation8 - replace->genBound8) & GENERATION_MASK)
-          >   tte[i].depth8 - ((GENERATION_CYCLE + generation8 -   tte[i].genBound8) & GENERATION_MASK))
-          replace = &tte[i];
-
-  return found = false, replace;
+	return (TTEntry*)&(cluster->key16[index]);
 }
 
 
@@ -152,11 +160,13 @@ TTEntry* TranspositionTable::probe(const Key key, bool& found) const {
 int TranspositionTable::hashfull() const {
 
   int cnt = 0;
-  for (int i = 0; i < 1000; ++i)
-      for (int j = 0; j < ClusterSize; ++j)
-          cnt += table[i].entry[j].depth8 && (table[i].entry[j].genBound8 & GENERATION_MASK) == generation8;
-
-  return cnt / ClusterSize;
+  for (int i = 0; i < 125; ++i) {
+      for (int j = 0; j < ClusterSize; ++j) {
+		  TTEntry* tte = (TTEntry*)&(table[i].key16[j]);
+          cnt += tte->depth8 && (tte->genBound8 & GENERATION_MASK) == generation8;
+	  }
+  }
+  return cnt;
 }
 
 } // namespace Stockfish

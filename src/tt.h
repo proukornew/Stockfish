@@ -35,8 +35,7 @@ namespace Stockfish {
 /// value      16 bit
 /// eval value 16 bit
 
-struct TTEntry {
-
+struct TTEntry { //StubEdition
   Move  move()  const { return (Move )move16; }
   Value value() const { return (Value)value16; }
   Value eval()  const { return (Value)eval16; }
@@ -49,11 +48,24 @@ private:
   friend class TranspositionTable;
 
   uint16_t key16;
+  uint16_t stub0[7];
   uint8_t  depth8;
+  uint8_t  stub1[7];
   uint8_t  genBound8;
+  uint8_t  stub2[7];
   uint16_t move16;
+  uint16_t stub3[7];
   int16_t  value16;
+  uint16_t stub4[7];
   int16_t  eval16;
+};
+
+struct Cluster {
+  uint16_t key16[8];
+  uint16_t  depth8genBound8[8];
+  uint16_t move16[8];
+  int16_t  value16[8];
+  int16_t eval16[8];
 };
 
 
@@ -65,14 +77,14 @@ private:
 
 class TranspositionTable {
 
-  static constexpr int ClusterSize = 3;
+  static constexpr int ClusterSize = 8;
 
-  struct Cluster {
-    TTEntry entry[ClusterSize];
-    char padding[2]; // Pad to 32 bytes
-  };
+  //struct Cluster {
+  //  TTEntry entry[ClusterSize];
+    //char padding[2]; // Pad to 32 bytes
+  //};
 
-  static_assert(sizeof(Cluster) == 32, "Unexpected Cluster size");
+  static_assert(sizeof(Cluster) == 80, "Unexpected Cluster size");
 
   // Constants used to refresh the hash table periodically
   static constexpr unsigned GENERATION_BITS  = 3;                                // nb of bits reserved for other things
@@ -88,8 +100,8 @@ public:
   void resize(size_t mbSize);
   void clear();
 
-  TTEntry* first_entry(const Key key) const {
-    return &table[mul_hi64(key, clusterCount)].entry[0];
+  Cluster* first_entry(const Key key) const {
+    return &table[mul_hi64(key, clusterCount)];
   }
 
 private:
